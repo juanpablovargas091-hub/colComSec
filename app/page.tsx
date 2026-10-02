@@ -269,7 +269,7 @@ function Portal({ account, data, files, categories: chosen, submitted, setData, 
         {submitted && <nav className="portal-tabs" aria-label="Panel del usuario"><button className={tab === "tray" ? "active" : ""} onClick={() => setTab("tray")}>Mi bandeja</button><button className={tab === "form" ? "active" : ""} onClick={() => { setTab("form"); setStep(0); }}>Formulario (solo lectura)</button></nav>}
         {submitted && tab === "tray" ? <section className="user-tray"><article className="tray-summary"><span className="tray-check">✓</span><h1>Tu documentación fue enviada con éxito</h1>
         <p>Tu información permanece disponible en el panel. Consulta aquí los documentos de que el administrador publique para tu usuario.</p></article><article className="tray-document">
-          <div className="tray-document-heading">{/*<h2>Documento de la postulación</h2><button className="secondary tray-refresh" onClick={() => { void refreshAssignedDocument(true); }} disabled={refreshingDocument}>{refreshingDocument ? "Actualizando…" : "Actualizar"}</button>*/}
+          <div className="tray-document-heading">
 </div>{assignedDocument?.available ? <div className="assigned-file"><div><strong>{assignedDocument.document_name}</strong>
 <span>{assignedDocument.uploaded_at ? `Publicado el ${new Date(assignedDocument.uploaded_at).toLocaleString("es-CO")}` : "Documento disponible"}</span></div>
 <a className="primary download-assigned" href="/api/providers/assigned-document" download={assignedDocument.document_name}>Descargar documento PDF</a></div> : 
@@ -288,7 +288,6 @@ function Portal({ account, data, files, categories: chosen, submitted, setData, 
     </button>
   </div>
 
-  {/* CASO A: El administrador subió un archivo y está disponible para descarga */}
   {assignedDocument?.available ? (
     <div className="admin-assigned-file" style={{ padding: '16px', border: '1px solid #bfdbfe', borderRadius: '6px', backgroundColor: '#eff6ff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <div>
@@ -304,13 +303,11 @@ function Portal({ account, data, files, categories: chosen, submitted, setData, 
       </a>
     </div>
   ) : (
-    /* CASO B: El espacio está vacío o fue liberado por el administrador. Habilitamos la carga para el usuario */
     <div className="user-upload-signed-zone" style={{ padding: '16px', border: '1px dashed #cbd5e1', borderRadius: '6px', backgroundColor: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '12px' }}>
       <p style={{ fontSize: '14px', color: '#475569', margin: 0 }}>
         <strong>Espacio liberado para radicación:</strong> Adjunte aquí el documento de postulación definitivo debidamente firmado, escaneado y con huella en formato PDF.
       </p>
       
-      {/* Botón interactivo de carga para el proveedor */}
       <label 
         className={`primary user-upload-button${uploadingDocument === 'adminDocument' ? " disabled" : ""}`} 
         style={{ 
@@ -327,7 +324,7 @@ function Portal({ account, data, files, categories: chosen, submitted, setData, 
           type="file" 
           accept=".pdf,application/pdf" 
           disabled={uploadingDocument === 'adminDocument'} 
-          style={{ display: 'none' }} // 🚀 LA SOLUCIÓN: Oculta el texto feo y pegado del navegador nativo
+          style={{ display: 'none' }} 
           onChange={(event) => { 
             const file = event.target.files?.[0];
             if (!file) return;
@@ -477,27 +474,28 @@ function Admin({ onExit }: { onExit: () => void }) {
   const [uploadingAssignedDocument, setUploadingAssignedDocument] = useState(false);
   const [assignedDocumentError, setAssignedDocumentError] = useState("");
   const [error, setError] = useState("");
-  const loadProviders = useCallback(async () => {
-  setLoading(true); setError("");
-  try {
-    const response = await fetch("/api/admin/providers", { cache: "no-store" });
-    const result = await response.json() as { error?: string; providers?: Provider[] };
-    if (!response.ok) throw new Error(result.error || "No fue posible consultar los proveedores.");
-    
-    const next = result.providers ?? []; 
-    setProviders(next); 
-    
-    // Forzamos el refresco del ID seleccionado para obligar a React a rehidratar la barra lateral
-    const currentId = selectedId;
-    setSelectedId(null);
-    setTimeout(() => setSelectedId(currentId), 10);
+  const [deletingProvider, setDeletingProvider] = useState(false);
 
-  } catch (requestError) { 
-    setError(requestError instanceof Error ? requestError.message : "No fue posible consultar los proveedores."); 
-  } finally { 
-    setLoading(false); 
-  }
-}, [selectedId]);
+  const loadProviders = useCallback(async () => {
+    setLoading(true); setError("");
+    try {
+      const response = await fetch("/api/admin/providers", { cache: "no-store" });
+      const result = await response.json() as { error?: string; providers?: Provider[] };
+      if (!response.ok) throw new Error(result.error || "No fue posible consultar los proveedores.");
+      
+      const next = result.providers ?? []; 
+      setProviders(next); 
+      
+      const currentId = selectedId;
+      setSelectedId(null);
+      setTimeout(() => setSelectedId(currentId), 10);
+
+    } catch (requestError) { 
+      setError(requestError instanceof Error ? requestError.message : "No fue posible consultar los proveedores."); 
+    } finally { 
+      setLoading(false); 
+    }
+  }, [selectedId]);
 
   useEffect(() => {
     let active = true;
@@ -510,7 +508,9 @@ function Admin({ onExit }: { onExit: () => void }) {
       .then((next) => {
         if (!active) return;
         setProviders(next);
-        setSelectedId(next[0]?.id ?? null);
+        if (next.length > 0) {
+          setSelectedId(next[0].id);
+        }
       })
       .catch((requestError) => {
         if (active) setError(requestError instanceof Error ? requestError.message : "No fue posible consultar los proveedores.");
@@ -561,18 +561,11 @@ function Admin({ onExit }: { onExit: () => void }) {
 
       if (response.ok) {
         const result = await response.json();
-        
-        // ============================================================
-        // LA MAGIA DE ACTUALIZACIÓN EN TIEMPO REAL:
-        // Reemplazamos los datos del proveedor viejo en la lista global 
-        // por el objeto 'provider' reseteado que nos acaba de devolver el backend
-        // ============================================================
         setProviders((current) => 
           current.map((provider) => 
             provider.id === providerId ? result.provider : provider
           )
         );
-        
       } else {
         console.error("No fue posible liberar el espacio en el servidor.");
       }
@@ -583,16 +576,47 @@ function Admin({ onExit }: { onExit: () => void }) {
     }
   };
 
+  const handleFullDeleteProvider = async (providerId: string, companyName: string) => {
+    const confirmDelete = window.confirm(
+      `¿Estás absolutamente seguro de eliminar a "${companyName}" por completo?\n\nEsta acción es irreversible: eliminará permanentemente todos sus registros en Postgres y purgará los archivos PDFs asociados en Supabase Storage.`
+    );
 
+    if (!confirmDelete) return;
 
+    setDeletingProvider(true);
+    try {
+      const response = await fetch(`/api/admin/providers/${encodeURIComponent(providerId)}`, {
+        method: 'DELETE'
+      });
 
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        alert('La empresa y sus archivos asociados han sido eliminados del sistema de forma definitiva.');
+        
+        const remainingProviders = providers.filter((p) => p.id !== providerId);
+        setProviders(remainingProviders);
+        if (remainingProviders.length > 0) {
+          setSelectedId(remainingProviders[0].id);
+        } else {
+          setSelectedId(null);
+        }
+      } else {
+        alert(`Error: ${result.error || 'No se pudo completar la eliminación completa del proveedor.'}`);
+      }
+    } catch (err) {
+      console.error("Error durante la petición de eliminación completa:", err);
+      alert('Ocurrió un error de conexión al intentar purgar la empresa.');
+    } finally {
+      setDeletingProvider(false);
+    }
+  };
 
   const selected = providers.find((provider) => provider.id === selectedId) ?? null;
   const selectedData = selected?.submission?.data ?? {};
   const selectedCategories = selected?.submission?.categories ?? [];
   const selectedAuthorizations = selected?.submission?.authorizations ?? {};
-  //const selectedAssignedDocument = selected?.document_files?.[assignedDocumentType] ?? null;
-  // Línea corregida: Valida directamente sobre la columna document_names de Supabase
+  
   const selectedAssignedDocument = selected?.document_names?.[assignedDocumentType] 
   ? { document_name: selected.document_names[assignedDocumentType], available: true, uploaded_at: selected.updated_at }
   : null;
@@ -604,7 +628,8 @@ function Admin({ onExit }: { onExit: () => void }) {
       <div className="metrics"><article><strong>{providers.length}</strong><span>Proveedores registrados</span></article><article><strong>{submittedCount}</strong><span>Simulaciones finalizadas</span></article><article><strong>{providers.length - submittedCount}</strong><span>Borradores guardados</span></article></div>
       {error && <p className="error">{error}</p>}
       <div className="admin-grid"><section className="provider-list" aria-label="Proveedores registrados"><div className="provider-list-head"><h2>Registros</h2><span>{providers.length}</span></div>
-        {loading && !providers.length ? <p className="empty-state">Cargando proveedores…</p> : providers.length === 0 ? <p className="empty-state">Aún no hay proveedores registrados.</p> : providers.map((provider) => <button key={provider.id} className={`provider-row ${provider.id === selectedId ? "selected" : ""}`} onClick={() => setSelectedId(provider.id)}><span className="provider-avatar">{provider.company_name[0]?.toUpperCase() || "P"}</span><span><strong>{provider.company_name}</strong><small>{provider.email}</small></span><em className={`status ${provider.status}`}>{provider.status === "submitted" ? "Finalizado" : "Borrador"}</em></button>)}
+        {loading && !providers.length ? <p className="empty-state">Cargando proveedores…</p> : providers.length === 0 ? <p className="empty-state">Aún no hay proveedores registrados.</p> : providers.map((provider) => <button key={provider.id} className={`provider-row ${provider.id === selectedId ? "selected" : ""}`} onClick={() => setSelectedId(provider.id)}>
+        <span className="provider-avatar">{provider.company_name ? provider.company_name[0]?.toUpperCase() : "P"}</span><span><strong>{provider.company_name}</strong><small>{provider.email}</small></span><em className={`status ${provider.status}`}>{provider.status === "submitted" ? "Finalizado" : "Borrador"}</em></button>)}
       </section><section className="audit-card provider-detail">{selected ? <>
         <div className="audit-head"><div><h2>{selected.company_name}</h2><p>{selected.email}</p></div><span className="status">{selected.status === "submitted" ? "Recorrido finalizado" : "Borrador guardado"}</span></div>
         <div className="record-sections">
@@ -629,7 +654,7 @@ function Admin({ onExit }: { onExit: () => void }) {
           </RecordSection>
           <RecordSection title="3. Oferta y experiencia">
             <AdminLine label="RUP vigente" value={selectedData.rup} />
-            {selectedCategories.length ? selectedCategories.map((category, index) => <AdminLine key={category} label={`Categoría ${index + 1}`} value={category} />) : <AdminLine label="Categorías" value="—" />}
+            {selectedCategories.length ? selectedCategories.map((category, index) => <AdminLine key={category} label={`Categoría \${index + 1}`} value={category} />) : <AdminLine label="Categorías" value="—" />}
           </RecordSection>
           <RecordSection title="4. Documentos registrados">
             {documents.map(([key, label]) => <DocumentLine key={key} provider={selected} documentType={key} label={label} />)}
@@ -646,20 +671,18 @@ function Admin({ onExit }: { onExit: () => void }) {
             {selectedAssignedDocument?.available && (
               <div className="admin-assigned-file">
                 <strong>{selectedAssignedDocument.document_name}</strong>
-                <span>{selectedAssignedDocument.uploaded_at ? `Cargado el ${new Date(selectedAssignedDocument.uploaded_at).toLocaleString("es-CO")}` : "Documento cargado"}</span>
+                <span>{selectedAssignedDocument.uploaded_at ? `Cargado el \${new Date(selectedAssignedDocument.uploaded_at).toLocaleString("es-CO")}` : "Documento cargado"}</span>
                 
-                {/* Contenedor horizontal para alinear los dos botones de control */}
                 <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                   <a 
                     className="download-document" 
-                    href={`/api/admin/providers/${encodeURIComponent(selected.id)}/assigned-document`} 
+                    href={`/api/admin/providers/\${encodeURIComponent(selected.id)}/assigned-document`} 
                     download={selectedAssignedDocument.document_name}
                     style={{ flex: 1, textAlign: 'center' }}
                   >
                     Descargar PDF
                   </a>
                   
-                  {/* BOTÓN ROJO DE BORRADO: Llama a la API DELETE que limpia base de datos y storage */}
                   <button 
                     type="button"
                     className="delete-document-button"
@@ -683,17 +706,19 @@ function Admin({ onExit }: { onExit: () => void }) {
             )}
 
             {assignedDocumentError && <p className="error">{assignedDocumentError}</p>}
-            
-            <label className={`primary admin-upload-button${uploadingAssignedDocument || deletingAssignedDocument ? " disabled" : ""}`}>
+            <label 
+              className={`primary admin-upload-button ${uploadingAssignedDocument || deletingAssignedDocument ? "disabled" : ""}`}
+              style={{ cursor: 'pointer', display: 'inline-block', textAlign: 'center' }}
+            >
               {uploadingAssignedDocument ? "Cargando documento…" : selectedAssignedDocument?.available ? "Reemplazar documento del usuario" : "Cargar documento al usuario"}
               <input 
                 type="file" 
                 accept=".pdf,application/pdf" 
+                style={{ display: 'none' }} // 🚀 ESTA LÍNEA OCULTA EL TEXTO MONTADO DEFINITIVAMENTE
                 disabled={uploadingAssignedDocument || deletingAssignedDocument} 
                 onChange={(event) => { void uploadAssignedDocument(selected.id, event.target.files?.[0]); event.currentTarget.value = ""; }} 
               />
             </label>
-            
             <small>Solo PDF, máximo 4 MB.</small>
           </div>
         </RecordSection>
@@ -702,6 +727,44 @@ function Admin({ onExit }: { onExit: () => void }) {
             <AdminLine label="Estado" value={selected.status === "submitted" ? "Finalizado" : "Borrador"} />
             <AdminLine label="Creado" value={new Date(selected.created_at).toLocaleString("es-CO")} />
             <AdminLine label="Última actualización" value={new Date(selected.updated_at).toLocaleString("es-CO")} />
+          </RecordSection>
+
+          <RecordSection title="⚠️ Zona de Peligro Administrativa">
+            <div style={{ 
+              padding: '16px', 
+              border: '1px solid #fecaca', 
+              borderRadius: '6px', 
+              backgroundColor: '#fef2f2',
+              display: 'flex', 
+              flexDirection: 'column', 
+              gap: '12px' 
+            }}>
+              <p style={{ fontSize: '13px', color: '#991b1b', margin: 0, lineHeight: '1.4' }}>
+                <strong>Atención:</strong> Al hacer clic en el botón de abajo se eliminará por completo la cuenta comercial de <strong>{selected.company_name}</strong> de Postgres y se vaciará su respectivo directorio privado dentro del bucket <em>licitaciones</em> de Supabase.
+              </p>
+              <button
+                type="button"
+                disabled={deletingProvider}
+                onClick={() => void handleFullDeleteProvider(selected.id, selected.company_name)}
+                style={{
+                  width: '100%',
+                  backgroundColor: '#b91c1c',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  padding: '10px 16px',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  cursor: deletingProvider ? 'not-allowed' : 'pointer',
+                  opacity: deletingProvider ? 0.6 : 1,
+                  transition: 'background-color 0.2s'
+                }}
+                onMouseOver={(e) => !deletingProvider && (e.currentTarget.style.backgroundColor = '#991b1b')}
+                onMouseOut={(e) => !deletingProvider && (e.currentTarget.style.backgroundColor = '#b91c1c')}
+              >
+                {deletingProvider ? "Purgando empresa y archivos..." : "Eliminar Empresa por Completo"}
+              </button>
+            </div>
           </RecordSection>
         </div>
         <p className="safe">Los formularios se almacenan en tablas relacionadas y los documentos PDF se conservan en un contenedor privado de Supabase. La descarga requiere una sesión administrativa autorizada.</p>
