@@ -3,10 +3,9 @@ import {
   createProvider,
   createSession,
   PROVIDER_COOKIE,
-  sessionCookie,
 } from "@/lib/portal-server";
 
-// 🚀 Fuerza a Next.js a procesar la solicitud en tiempo real en Vercel (evita el error 500 por caché estática)
+// 🚀 Forzamos a Next.js a no cachear este endpoint en los servidores de Vercel
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
@@ -28,21 +27,27 @@ export async function POST(request: Request) {
       );
     }
 
-    // Llama a la función original que inserta y encripta directamente en la tabla portal_providers en la nube
+    // Ejecuta la encriptación manual original en tu tabla portal_providers de Postgres
     const provider = await createProvider(company, email, password);
 
-    // Genera el token interno de sesión segura original de tu proyecto
+    // Genera el token interno original de tu proyecto
     const token = await createSession("provider", provider.id, provider.email);
 
-    return NextResponse.json(
-      { provider },
-      {
-        status: 201,
-        headers: {
-          "Set-Cookie": sessionCookie(PROVIDER_COOKIE, token),
-        },
-      }
-    );
+    // Creamos la respuesta JSON estándar
+    const response = NextResponse.json({ provider }, { status: 201 });
+
+    // 🚀 SOLUCIÓN EN PRODUCCIÓN: Seteamos la cookie usando el estándar nativo de Next.js
+    // Esto evita que Vercel rompa la cabecera 'Set-Cookie' al procesar dominios con HTTPS
+    response.cookies.set(PROVIDER_COOKIE, token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production", // Se activa automáticamente solo en la web en vivo
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 24, // 1 día de duración estándar
+    });
+
+    return response;
+
   } catch (error) {
     const detalle = error instanceof Error ? error.message : String(error);
     console.error("[REGISTRO] Fallo real:", detalle);
