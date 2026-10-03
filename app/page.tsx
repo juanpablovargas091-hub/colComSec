@@ -676,7 +676,7 @@ function Admin({ onExit }: { onExit: () => void }) {
                 <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                   <a 
                     className="download-document" 
-                    href={`/api/admin/providers/\${encodeURIComponent(selected.id)}/assigned-document`} 
+                    href={`/api/admin/providers/${encodeURIComponent(selected.id)}/assigned-document`}
                     download={selectedAssignedDocument.document_name}
                     style={{ flex: 1, textAlign: 'center' }}
                   >
