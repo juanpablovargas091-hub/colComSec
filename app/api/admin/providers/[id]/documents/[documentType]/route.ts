@@ -3,74 +3,82 @@ import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_PORTAL_TOKEN;
-
-const supabaseAdmin = supabaseUrl && supabaseServiceKey 
-  ? createClient(supabaseUrl, supabaseServiceKey) 
-  : null;
+const supabaseUrl = process.env.SUPABASE_URL || '';
+const supabaseServiceKey = process.env.SUPABASE_PORTAL_TOKEN || '';
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ id: string; documentType: string }> } // 🚀 CORREGIDO: documentType coincide con tu carpeta
+  { params }: { params: Promise<{ id: string; documentType: string }> }
 ) {
-  if (!supabaseAdmin) {
-    return NextResponse.json({ error: 'Configuración de servidor incompleta.' }, { status: 500 });
-  }
-
   try {
-    // 1. Esperamos la resolución asíncrona obligatoria de Next.js 15
-    const resolvedParams = await params;
-    const providerId = resolvedParams.id;
-    const docType = resolvedParams.documentType; // 🚀 Lee el nombre exacto de tu parámetro
+    // 1. Desenvolvemos los parámetros de la URL
+    const { id, documentType } = await params;
 
-    if (!providerId || !docType) {
-      return NextResponse.json({ error: 'Parámetros inválidos en la ruta.' }, { status: 400 });
-    }
-
-    // 2. Consultamos en Postgres el nombre real del archivo guardado por el usuario
-    const { data: provider, error: dbError } = await supabaseAdmin
+    // 2. Consultamos el registro del proveedor en la base de datos
+    const { data: provider, error: dbError } = await supabase
       .from('portal_providers')
-      .select('document_names')
-      .eq('id', providerId)
+      .select('*')
+      .eq('id', id)
       .single();
 
     if (dbError || !provider) {
-      return NextResponse.json({ error: 'Proveedor no mapeado en la base de datos.' }, { status: 404 });
+      return NextResponse.json({ error: "No se encontraron datos de este proveedor." }, { status: 404 });
     }
 
-    const realFileName = provider.document_names?.[docType];
+    // 3. Obtenemos el nombre EXACTO con el que se registró el documento en Supabase
+    // Si usaste marcas de tiempo al guardar (ej: camara_179082.pdf), aquí recuperamos ese string exacto
+    const nombreOriginalGuardado = provider.document_names?.[documentType];
 
-    if (!realFileName) {
-      return NextResponse.json({ error: 'Este documento específico no ha sido cargado.' }, { status: 404 });
+    if (!nombreOriginalGuardado) {
+      return NextResponse.json({ error: `El documento ${documentType} no está registrado.` }, { status: 404 });
     }
 
-    // 3. Descarga el binario del archivo desde el bucket de Supabase
-    // Nomenclatura exacta de almacenamiento: carpeta_id/nombre_archivo.pdf
-    const { data: fileData, error: storageError } = await supabaseAdmin.storage
+    // 4. Si guardaste el archivo físicamente como 'camara.pdf' pero con nombre mapeado,
+    // o si el archivo en Storage se llama igual que el original, validamos la ruta correcta:
+    // Probamos primero con el slug estructurado estándar del flujo:
+    let rutaArchivoStorage = `${id}/${documentType}.pdf`;
+
+    console.log(`[ADMIN DOWNLOAD OPTION 4] Intentando descargar: ${rutaArchivoStorage}`);
+
+    // Descargamos el archivo binario desde tu bucket
+    let { data: fileData, error: storageError } = await supabase.storage
       .from('licitaciones')
-      .download(`${providerId}/${realFileName}`);
+      .download(rutaArchivoStorage);
+
+    // Si da error de 'Object not found', intentamos buscarlo con el nombre original por si se subió con el nombre nativo
+    if (storageError && storageError.message.includes('Object not found')) {
+      rutaArchivoStorage = `${id}/${nombreOriginalGuardado}`;
+      console.log(`[RETRY OPTION 4] Intentando con nombre original: ${rutaArchivoStorage}`);
+      
+      const retryResult = await supabase.storage
+        .from('licitaciones')
+        .download(rutaArchivoStorage);
+        
+      fileData = retryResult.data;
+      storageError = retryResult.error;
+    }
 
     if (storageError || !fileData) {
-      console.error("❌ Error Storage:", storageError?.message);
-      return NextResponse.json({ error: 'Archivo físico no hallado en el bucket.' }, { status: 404 });
+      console.error("❌ Error Storage:", storageError?.message || "Archivo vacío");
+      return NextResponse.json({ error: "El archivo físico no fue encontrado en el contenedor." }, { status: 404 });
     }
 
-    // 4. Convertimos el archivo a binario seguro para la transmisión HTTP
-    const arrayBuffer = await fileData.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    // 5. Convertimos los datos a un buffer binario limpio y legible
+    const buffer = Buffer.from(await fileData.arrayBuffer());
+    console.log(`✅ Documento ${documentType} descargado con éxito: ${buffer.length} bytes`);
 
-    // 5. Entregamos el PDF forzando la descarga limpia con su nombre original en el navegador
+    // Servimos el PDF original directo al navegador del administrador
     return new NextResponse(buffer, {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${encodeURIComponent(realFileName)}"`,
+        'Content-Disposition': `attachment; filename="${encodeURIComponent(nombreOriginalGuardado)}"`,
       },
     });
 
-  } catch (error) {
-    console.error('❌ Excepción en descarga administrativa:', error);
-    return NextResponse.json({ error: 'Fallo interno al procesar el archivo.' }, { status: 500 });
+  } catch (error: any) {
+    console.error("Error crítico en descarga de opción 4:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
