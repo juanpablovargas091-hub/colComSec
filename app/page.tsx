@@ -42,6 +42,7 @@ const documents = [
   ["rut", "RUT actualizado"],
   ["banco", "Certificación bancaria reciente"],
   ["financieros", "Estados financieros del último año"],
+  ["declaracion", "Declaracion de renta del último año"],
 ] as const;
 const assignedDocumentType = "adminDocument";
 
@@ -671,7 +672,11 @@ function Admin({ onExit }: { onExit: () => void }) {
             {selectedAssignedDocument?.available && (
               <div className="admin-assigned-file">
                 <strong>{selectedAssignedDocument.document_name}</strong>
-                <span>{selectedAssignedDocument.uploaded_at ? `Cargado el \${new Date(selectedAssignedDocument.uploaded_at).toLocaleString("es-CO")}` : "Documento cargado"}</span>
+                <span>
+                {selectedAssignedDocument.uploaded_at 
+                  ? `Cargado el ${new Date(selectedAssignedDocument.uploaded_at).toLocaleString("es-CO")}` 
+                  : "Documento cargado"}
+              </span>
                 
                 <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                   <a 
