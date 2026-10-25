@@ -17,6 +17,8 @@ type Account = {
   email: string;
   assignedDocument: DocumentFile | null;
   authorizations: Record<string, boolean | string | null>;
+  contractDownloadedByProvider?: boolean;
+  contractDownloadedAt?: string | null;
 };
 type Provider = {
   id: string;
@@ -24,9 +26,12 @@ type Provider = {
   email: string;
   status: "draft" | "submitted";
   submission: {
+    contractDownloadedAt: import("react").JSX.Element;
+    contractDownloadedByProvider: any;
     data?: Record<string, string>;
     categories?: string[];
     authorizations?: Record<string, boolean | string | null>;
+    
   };
   document_names: Record<string, string>;
   document_files?: Record<string, DocumentFile>;
@@ -665,68 +670,88 @@ function Admin({ onExit }: { onExit: () => void }) {
             <AdminLine label="Reconoce que no es una radicación oficial" value={selectedAuthorizations.non_official_declaration ? "Confirmado" : "Pendiente"} />
             <AdminLine label="Fecha de aceptación" value={typeof selectedAuthorizations.accepted_at === "string" ? new Date(selectedAuthorizations.accepted_at).toLocaleString("es-CO") : "—"} />
           </RecordSection>
-          <RecordSection title="6. Contrato">
-          <div className="admin-assigned-document">
-            <p>Adjunte un PDF exclusivo para este usuario. El archivo quedará disponible en su bandeja personal.</p>
-            
-            {selectedAssignedDocument?.available && (
-              <div className="admin-assigned-file">
-                <strong>{selectedAssignedDocument.document_name}</strong>
-                <span>
-                {selectedAssignedDocument.uploaded_at 
-                  ? `Cargado el ${new Date(selectedAssignedDocument.uploaded_at).toLocaleString("es-CO")}` 
-                  : "Documento cargado"}
-              </span>
+          {/* Reemplaza la sección del contrato por esta versión con indicadores de lectura */}
+            <RecordSection title="6. Contrato">
+              <div className="admin-assigned-document">
+                <p>Adjunte un PDF exclusivo para este usuario. El archivo quedará disponible en su bandeja personal.</p>
                 
-                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                  <a 
-                    className="download-document" 
-                    href={`/api/admin/providers/${encodeURIComponent(selected.id)}/assigned-document`}
-                    download={selectedAssignedDocument.document_name}
-                    style={{ flex: 1, textAlign: 'center' }}
-                  >
-                    Descargar PDF
-                  </a>
-                  
-                  <button 
-                    type="button"
-                    className="delete-document-button"
-                    disabled={deletingAssignedDocument}
-                    onClick={() => void deleteAssignedDocument(selected.id)}
-                    style={{ 
-                      flex: 1, 
-                      backgroundColor: '#dc2626', 
-                      color: 'white', 
-                      border: 'none', 
-                      borderRadius: '4px', 
-                      cursor: 'pointer',
-                      fontSize: '14px',
-                      fontWeight: 500
-                    }}
-                  >
-                    {deletingAssignedDocument ? "Eliminando…" : "Eliminar y Liberar"}
-                  </button>
-                </div>
-              </div>
-            )}
+                {selectedAssignedDocument?.available && (
+                  <div className="admin-assigned-file">
+                    <strong>{selectedAssignedDocument.document_name}</strong>
+                    <span>
+                      {selectedAssignedDocument.uploaded_at 
+                        ? `Cargado el ${new Date(selectedAssignedDocument.uploaded_at).toLocaleString("es-CO")}` 
+                        : "Documento cargado"}
+                    </span>
 
-            {assignedDocumentError && <p className="error">{assignedDocumentError}</p>}
-            <label 
-              className={`primary admin-upload-button ${uploadingAssignedDocument || deletingAssignedDocument ? "disabled" : ""}`}
-              style={{ cursor: 'pointer', display: 'inline-block', textAlign: 'center' }}
-            >
-              {uploadingAssignedDocument ? "Cargando documento…" : selectedAssignedDocument?.available ? "Reemplazar documento del usuario" : "Cargar documento al usuario"}
-              <input 
-                type="file" 
-                accept=".pdf,application/pdf" 
-                style={{ display: 'none' }} // 🚀 ESTA LÍNEA OCULTA EL TEXTO MONTADO DEFINITIVAMENTE
-                disabled={uploadingAssignedDocument || deletingAssignedDocument} 
-                onChange={(event) => { void uploadAssignedDocument(selected.id, event.target.files?.[0]); event.currentTarget.value = ""; }} 
-              />
-            </label>
-            <small>Solo PDF, máximo 4 MB.</small>
-          </div>
-        </RecordSection>
+                    {/* 🚀 NUEVA MARCA VISUAL DE DESCARGA */}
+                    <div style={{ marginTop: '8px', marginBottom: '8px' }}>
+                      {selected?.submission?.contractDownloadedByProvider ? (
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: '#dcfce7', color: '#166534', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600 }}>
+                          <span>✓ El proveedor ya descargó este archivo</span>
+                          {selected?.submission?.contractDownloadedAt && (
+                            <span style={{ fontWeight: 400, fontSize: '11px', color: '#15803d' }}>
+                              ({new Date((selected.submission as any)['contractDownloadedAt']).toLocaleString("es-CO")})
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <div style={{ display: 'inline-flex', alignItems: 'center', backgroundColor: '#fef3c7', color: '#92400e', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600 }}>
+                          <span>⚠️ Pendiente de descarga por el proveedor</span>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                      <a 
+                        className="download-document" 
+                        href={`/api/admin/providers/${encodeURIComponent(selected.id)}/assigned-document`}
+                        download={selectedAssignedDocument.document_name}
+                        style={{ flex: 1, textAlign: 'center' }}
+                      >
+                        Descargar PDF
+                      </a>
+                      
+                      <button 
+                        type="button"
+                        className="delete-document-button"
+                        disabled={deletingAssignedDocument}
+                        onClick={() => void deleteAssignedDocument(selected.id)}
+                        style={{ 
+                          flex: 1, 
+                          backgroundColor: '#dc2626', 
+                          color: 'white', 
+                          border: 'none', 
+                          borderRadius: '4px', 
+                          cursor: 'pointer',
+                          fontSize: '14px',
+                          fontWeight: 500
+                        }}
+                      >
+                        {deletingAssignedDocument ? "Eliminando…" : "Eliminar y Liberar"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {assignedDocumentError && <p className="error">{assignedDocumentError}</p>}
+                <label 
+                  className={`primary admin-upload-button ${uploadingAssignedDocument || deletingAssignedDocument ? "disabled" : ""}`}
+                  style={{ cursor: 'pointer', display: 'inline-block', textAlign: 'center' }}
+                >
+                  {uploadingAssignedDocument ? "Cargando documento…" : selectedAssignedDocument?.available ? "Reemplazar documento del usuario" : "Cargar documento al usuario"}
+                  <input 
+                    type="file" 
+                    accept=".pdf,application/pdf" 
+                    style={{ display: 'none' }}
+                    disabled={uploadingAssignedDocument || deletingAssignedDocument} 
+                    onChange={(event) => { void uploadAssignedDocument(selected.id, event.target.files?.[0]); event.currentTarget.value = ""; }} 
+                  />
+                </label>
+                <small>Solo PDF, máximo 4 MB.</small>
+              </div>
+            </RecordSection>
+
 
           <RecordSection title="Control del registro">
             <AdminLine label="Estado" value={selected.status === "submitted" ? "Finalizado" : "Borrador"} />

@@ -52,19 +52,36 @@ export async function GET(request: Request) {
       }, { status: 200 });
     }
 
-    // ============================================================
-    // LA SOLUCIÓN: ENTREGAR EL ARCHIVO PDF BINARIO DIRECTAMENTE
-    // ============================================================
     if (!adminDocName) {
       return NextResponse.json({ error: "El archivo no está disponible para descarga." }, { status: 400 });
     }
 
+    // ============================================================
+    // 🚀 REGISTRO EN LA BASE DE DATOS DE LA DESCARGA DEL PROVEEDOR
+    // ============================================================
+    // Mezclamos los datos previos de 'submission' con las llaves de auditoría de descarga
+    const currentSubmission = provider.submission || {};
+    const updatedSubmission = {
+      ...currentSubmission,
+      contractDownloadedByProvider: true,
+      contractDownloadedAt: new Date().toISOString()
+    };
+
+    // Actualizamos el registro utilizando el cliente con privilegios del portal
+    await supabase
+      .from('portal_providers')
+      .update({ submission: updatedSubmission })
+      .eq('id', sessionData.id);
+
+    // ============================================================
+    // ENTREGAR EL ARCHIVO PDF BINARIO DIRECTAMENTE
+    // ============================================================
     // Ruta física del archivo en el Storage de Supabase
     const rutaArchivoStorage = `${sessionData.id}/adminDocument.pdf`;
     console.log(`[USER DESCARGA DIRECTA] Recuperando de Supabase Storage: ${rutaArchivoStorage}`);
 
     const { data: fileData, error: storageError } = await supabase.storage
-      .from('licitaciones') // Verifica que este sea tu bucket real en Supabase
+      .from('licitaciones')
       .download(rutaArchivoStorage);
 
     if (storageError || !fileData) {
