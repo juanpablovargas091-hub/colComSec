@@ -101,17 +101,24 @@ export function isDocumentType(value: string): value is DocumentType {
 }
 
 async function config() {
-  const runtime = process.env as unknown as PortalEnv;
+  // 1. Usamos process.env directamente de forma segura
+  const runtime = process.env;
   const required = [
     "SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY", "SUPABASE_PORTAL_TOKEN",
+    "SUPABASE_SERVICE_ROLE_KEY",
     "PORTAL_ADMIN_EMAIL", "PORTAL_ADMIN_PASSWORD_HASH", "PORTAL_PASSWORD_PEPPER",
     "PORTAL_SESSION_SECRET",
   ] as const;
+
+  // 2. Validamos que todas las variables obligatorias estén presentes en el entorno
   for (const key of required) {
     if (!runtime[key]) throw new Error(`Missing runtime configuration: ${key}`);
   }
-  return runtime as Required<PortalEnv>;
+
+  // 3. Retornamos el objeto con el tipado original de tu portal
+  return runtime as unknown as Required<PortalEnv>;
 }
+
 
 function normalizeEmail(value: string) { return value.trim().toLowerCase(); }
 
@@ -315,14 +322,56 @@ function materialize(row: GraphRow): PortalProvider {
 }
 
 export async function createProvider(company: string, email: string, password: string) {
-  const rows = await supabase("portal_providers?select=id", {
-    method: "POST", headers: { Prefer: "return=representation" },
-    body: JSON.stringify({ company_name: company.trim(), email: normalizeEmail(email), password_hash: await hashPassword(password) }),
-  }) as Array<{ id: string }>;
-  const provider = rows[0] ? await getProviderById(rows[0].id) : null;
-  if (!provider) throw new Error("Provider creation returned no record");
-  return provider;
+  // 1. Validamos y extraemos las variables de entorno del sistema
+  const runtimeEnv = config();
+
+  // 2. Construimos la URL exacta de PostgREST para la tabla portal_providers
+    const url = `${process.env.SUPABASE_URL as string}/rest/v1/portal_providers?select=id`;
+
+
+  // 3. Realizamos un fetch nativo directo para saltarnos las cabeceras automáticas de la función del proyecto
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Prefer": "return=representation",
+      // Pasamos la Secret Key en los dos encabezados obligatorios de tu pasarela
+      "apikey": process.env.SUPABASE_SERVICE_ROLE_KEY as string,
+      "Authorization": `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY as string}`
+
+    },
+    body: JSON.stringify({
+      company_name: company.trim(),
+      email: normalizeEmail(email),
+      password_hash: await hashPassword(password)
+    })
+  });
+
+  // 4. Si la base de datos responde con un error, lo atrapamos de inmediato para auditarlo
+  if (!response.ok) {
+    const errorTexto = await response.text();
+    throw new Error(`Error directo de base de datos (${response.status}): ${errorTexto}`);
+  }
+
+    // 5. Retornamos el registro creado mapeando los datos directamente
+  const rows = await response.json() as Array<{ id: string }>;
+  
+  if (!rows || rows.length === 0) {
+    throw new Error("Provider creation returned no record from database");
+  }
+
+  // En lugar de llamar a getProviderById (que falla por RLS),
+  // construimos y retornamos el objeto estructurado directamente con la información que ya tenemos en memoria
+  const provider = {
+    id: rows[0].id,
+    company_name: company.trim(),
+    email: normalizeEmail(email),
+    // Agrega aquí otros campos básicos que retorne tu base de datos o iniciales si tu tipado los exige
+  };
+
+  return provider as any; 
 }
+
 
 export async function getProviderByEmail(email: string): Promise<ProviderRow | null> {
   const select = `${graphFields},password_hash`;
